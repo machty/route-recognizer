@@ -663,7 +663,10 @@ class RouteRecognizer {
   }
 
   recognize(path: string): Results | undefined {
-    let results: Results | undefined;
+    return this.recognizeAll(path)[0];
+  }
+
+  recognizeAll(path: string): Results[] {
     let states: State[] = [ this.rootState ];
     let queryParams = {};
     let isSlashDropped = false;
@@ -706,18 +709,18 @@ class RouteRecognizer {
       if (states[i].handlers) { solutions.push(states[i]); }
     }
 
-    states = sortSolutions(solutions);
+    let results: Results[] = [];
 
-    let state = solutions[0];
-
-    if (state && state.handlers) {
-      // if a trailing slash was dropped and a star segment is the last segment
-      // specified, put the trailing slash back
-      if (isSlashDropped && state.pattern && state.pattern.slice(-5) === "(.+)$") {
-        originalPath = originalPath + "/";
+    sortSolutions(solutions).forEach(state => {
+      if (state.handlers) {
+        // if a trailing slash was dropped and a star segment is the last segment
+        // specified, put the trailing slash back
+        if (isSlashDropped && state.pattern && state.pattern.slice(-5) === "(.+)$") {
+          originalPath = originalPath + "/";
+        }
+        results.push(findHandler(state, originalPath, queryParams));
       }
-      results = findHandler(state, originalPath, queryParams);
-    }
+    })
 
     return results;
   }
