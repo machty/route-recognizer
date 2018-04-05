@@ -242,7 +242,7 @@ class State implements CharSpec {
   nextStates: number[] | number | null;
   pattern: string;
   _regex: RegExp | undefined;
-  handlers: Handler[] | undefined;
+  handlerSets: Handler[][] | undefined;
   types: [number, number, number] | undefined;
 
   constructor(states: State[], id: number, char: number, negate: boolean, repeat: boolean) {
@@ -253,7 +253,7 @@ class State implements CharSpec {
     this.nextStates = repeat ? id : null;
     this.pattern = "";
     this._regex = undefined;
-    this.handlers = undefined;
+    this.handlerSets = undefined;
     this.types = undefined;
   }
 
@@ -410,50 +410,57 @@ RecognizeResults.prototype.splice = Array.prototype.splice;
 RecognizeResults.prototype.slice =  Array.prototype.slice;
 RecognizeResults.prototype.push = Array.prototype.push;
 
-function findHandler(state: State, originalPath: string, queryParams: QueryParams): Results {
-  let handlers = state.handlers;
+function findHandlers(state: State, originalPath: string, queryParams: QueryParams): Results[] {
   let regex: RegExp = state.regex();
-  if (!regex || !handlers) throw new Error("state not initialized");
+  let handlerSets = state.handlerSets;
+  if (!regex || !handlerSets) throw new Error("state not initialized");
   let captures: RegExpMatchArray | null = originalPath.match(regex);
   let currentCapture = 1;
-  let result = new RecognizeResults(queryParams);
 
-  result.length = handlers.length;
+  let results = [];
 
-  for (let i = 0; i < handlers.length; i++) {
-    let handler = handlers[i];
-    let names = handler.names;
-    let shouldDecodes = handler.shouldDecodes;
-    let params: EmptyObject | Params = EmptyObject;
+  for (let h = 0; h < handlerSets.length; h++) {
+    let handlers = handlerSets[h];
+    let result = new RecognizeResults(queryParams);
+    result.length = handlers.length;
 
-    let isDynamic = false;
+    for (let i = 0; i < handlers.length; i++) {
+      let handler = handlers[i];
+      let names = handler.names;
+      let shouldDecodes = handler.shouldDecodes;
+      let params: EmptyObject | Params = EmptyObject;
 
-    if (names !== EmptyArray && shouldDecodes !== EmptyArray) {
-      for (let j = 0; j < names.length; j++) {
-        isDynamic = true;
-        let name = names[j];
-        let capture = captures && captures[currentCapture++];
+      let isDynamic = false;
 
-        if (params === EmptyObject) {
-          params = {};
-        }
+      if (names !== EmptyArray && shouldDecodes !== EmptyArray) {
+        for (let j = 0; j < names.length; j++) {
+          isDynamic = true;
+          let name = names[j];
+          let capture = captures && captures[currentCapture++];
 
-        if (RouteRecognizer.ENCODE_AND_DECODE_PATH_SEGMENTS && shouldDecodes[j]) {
-          (<Params>params)[name] = capture && decodeURIComponent(capture);
-        } else {
-          (<Params>params)[name] = capture;
+          if (params === EmptyObject) {
+            params = {};
+          }
+
+          if (RouteRecognizer.ENCODE_AND_DECODE_PATH_SEGMENTS && shouldDecodes[j]) {
+            (<Params>params)[name] = capture && decodeURIComponent(capture);
+          } else {
+            (<Params>params)[name] = capture;
+          }
         }
       }
+
+      result[i] = {
+        handler: handler.handler,
+        params,
+        isDynamic
+      };
     }
 
-    result[i] = {
-      handler: handler.handler,
-      params,
-      isDynamic
-    };
+    results.push(result);
   }
 
-  return result;
+  return results;
 }
 
 function decodeQueryParamPart(part: string): string {
@@ -537,14 +544,15 @@ class RouteRecognizer {
       pattern += "/";
     }
 
-    currentState.handlers = handlers;
-    currentState.pattern = pattern + "$";
-    currentState.types = types;
-
     let name: string | undefined;
     if (typeof options === "object" && options !== null && options.as) {
       name = options.as;
     }
+
+    currentState.handlerSets = currentState.handlerSets || [];
+    currentState.handlerSets.push(handlers);
+    currentState.pattern = pattern + "$";
+    currentState.types = types;
 
     if (name) {
       // if (this.names[name]) {
@@ -706,21 +714,27 @@ class RouteRecognizer {
 
     let solutions: State[] = [];
     for (let i = 0; i < states.length; i++) {
-      if (states[i].handlers) { solutions.push(states[i]); }
+      if (states[i].handlerSets) { solutions.push(states[i]); }
     }
 
     let results: Results[] = [];
 
-    sortSolutions(solutions).forEach(state => {
-      if (state.handlers) {
-        // if a trailing slash was dropped and a star segment is the last segment
-        // specified, put the trailing slash back
-        if (isSlashDropped && state.pattern && state.pattern.slice(-5) === "(.+)$") {
-          originalPath = originalPath + "/";
-        }
-        results.push(findHandler(state, originalPath, queryParams));
+    let sortedSolutions = sortSolutions(solutions);
+    for (let s = 0; s < sortedSolutions.length; s++) {
+      let state = sortedSolutions[s];
+      let op = originalPath;
+
+      // if a trailing slash was dropped and a star segment is the last segment
+      // specified, put the trailing slash back
+      if (isSlashDropped && state.pattern && state.pattern.slice(-5) === "(.+)$") {
+        op = originalPath + "/";
       }
-    })
+      
+      let handlerResults = findHandlers(state, op, queryParams);
+      for (let h = 0; h < handlerResults.length; h++) {
+        results.push(handlerResults[h])
+      }
+    }
 
     return results;
   }

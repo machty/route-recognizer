@@ -547,6 +547,23 @@ QUnit.test("Multiple `/` routes recognize", (assert: Assert) => {
   resultsMatch(assert, router.recognize("/"), [{ handler: handler1, params: {}, isDynamic: false }, { handler: handler2, params: {}, isDynamic: false }]);
 });
 
+QUnit.test("Duplicate routes definitions are sorted by declaration order", (assert: Assert) => {
+  let router = new RouteRecognizer();
+
+  router.add([{ path: "foo", handler: 1 }, { path: "bar", handler: 2 }]);
+  router.add([{ path: "foo", handler: 3 }, { path: "bar", handler: 4 }]);
+  router.add([{ path: "", handler: 5 }, { path: "", handler: 6 }]);
+  router.add([{ path: "", handler: 7 }, { path: "", handler: 8 }]);
+
+  let results = router.recognizeAll("/foo/bar");
+  resultsMatch(assert, results[0], [{ handler: 1, params: {}, isDynamic: false }, { handler: 2, params: {}, isDynamic: false }]);
+  resultsMatch(assert, results[1], [{ handler: 3, params: {}, isDynamic: false }, { handler: 4, params: {}, isDynamic: false }]);
+
+  results = router.recognizeAll("/");
+  resultsMatch(assert, results[0], [{ handler: 5, params: {}, isDynamic: false }, { handler: 6, params: {}, isDynamic: false }]);
+  resultsMatch(assert, results[1], [{ handler: 7, params: {}, isDynamic: false }, { handler: 8, params: {}, isDynamic: false }]);
+});
+
 QUnit.test("Overlapping routes recognize", (assert: Assert) => {
   let handler1 = { handler: 1 };
   let handler2 = { handler: 2 };
@@ -582,6 +599,10 @@ QUnit.test("Prefers single dynamic segments over stars", (assert: Assert) => {
   resultsMatch(assert, router.recognize("/foo/1"), [{ handler: handler1, params: { star: "1" }, isDynamic: true }]);
   resultsMatch(assert, router.recognize("/foo/suffix"), [{ handler: handler1, params: { star: "suffix" }, isDynamic: true }]);
   resultsMatch(assert, router.recognize("/foo/bar/suffix"), [{ handler: handler2, params: { star: "bar", dynamic: "suffix" }, isDynamic: true }]);
+
+  let results = router.recognizeAll("/foo/bar/suffix");
+  resultsMatch(assert, results[0], [{ handler: handler2, params: { star: "bar", dynamic: "suffix" }, isDynamic: true }]);
+  resultsMatch(assert, results[1], [{ handler: handler1, params: { star: "bar/suffix" }, isDynamic: true }]);
 });
 
 QUnit.test("Handle star routes last when there are trailing `/` routes.", (assert: Assert) => {
